@@ -1,0 +1,16 @@
+parakeet-run
+Copyright (c) 2026 Drew Bednar
+
+Original service code is licensed under the Apache License, Version 2.0.
+Repository conventions and Jetson runtime recipes are adapted from
+androiddrew/kokoro-run v0.2.1, Copyright (c) 2026 Drew Bednar, Apache-2.0.
+The recipes are modified for Parakeet, FP32 assets, mandatory FFmpeg, and Go 1.26.9.
+
+go-parakeet v0.1.0, Copyright (c) 2026 Drew Bednar, is Apache-2.0.
+Its TDT decisions and whitespace handling adapt onnx-asr,
+Copyright (c) 2025 Ilya Stupakov, under the MIT License.
+
+NVIDIA Parakeet TDT 0.6B v3 weights, the istupakov ONNX conversion, and the
+vocabulary embedded by go-parakeet retain CC-BY-4.0. The model conversion is
+by Ilya Stupakov. See THIRD_PARTY.md and third_party/parakeet-MODEL_CARD.md.
+The application does not modify the model weights or embedded vocabulary.

@@ -1,0 +1,61 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.26.9', stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: bash scripts/install-ort.sh amd64 "$RUNNER_TEMP/ort"
+      - uses: actions/cache@v4
+        with:
+          path: assets
+          key: parakeet-fp32-${{ hashFiles('internal/assets/manifest.json') }}
+      - run: make build && bin/parakeet-run pull
+      - name: Vet and race tests, including real CPU inference
+        env:
+          PARAKEET_RUN_TEST_ASSETS: ${{ github.workspace }}/assets
+          PARAKEET_RUN_TEST_ORT: ${{ runner.temp }}/ort/lib/libonnxruntime.so
+          PARAKEET_RUN_TEST_PROVIDER: cpu
+        run: go vet ./... && go test -race -count=1 -timeout=30m ./...
+      - name: Native diagnostics and official SDK
+        run: |
+          bin/parakeet-run doctor --ort-library "$RUNNER_TEMP/ort/lib/libonnxruntime.so"
+          python -m pip install -r scripts/sdk-requirements.txt
+          python scripts/sdk-smoke.py --ort "$RUNNER_TEMP/ort/lib/libonnxruntime.so"
+      - name: CPU container inference
+        if: matrix.go == '1.26.9'
+        run: |
+          make image-cpu BAKE_MODELS=0
+          docker run -d --name parakeet-ci -p 127.0.0.1:18880:8880 -v "$PWD/assets:/var/lib/parakeet-run/assets:ro" parakeet-run:cpu
+          trap 'docker logs parakeet-ci; docker rm -f -v parakeet-ci' EXIT
+          for i in $(seq 1 120); do
+            if docker exec parakeet-ci parakeet-run _healthcheck; then break; fi
+            sleep 2
+          done
+          python scripts/sdk-smoke.py --base-url http://127.0.0.1:18880
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: make lint
+      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck= -pyflakes=

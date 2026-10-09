@@ -1,0 +1,7 @@
+runtime:
+  library: /opt/onnxruntime/lib/libonnxruntime.so
+  provider: cuda
+model:
+  dir: /var/lib/parakeet-run/assets
+server:
+  listen: :8880

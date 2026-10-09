@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+# Adapted from kokoro-run v0.2.1. Build on Orin / JetPack 7.2, L4T r39.2.
+ARG L4T_RELEASE=r39.2
+FROM ubuntu:24.04 AS cuda-runtime
+ARG L4T_RELEASE
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+ADD https://repo.download.nvidia.com/jetson/jetson-ota-public.asc /etc/apt/trusted.gpg.d/jetson-ota-public.asc
+RUN set -eux; \
+    chmod 644 /etc/apt/trusted.gpg.d/jetson-ota-public.asc; \
+    echo "deb https://repo.download.nvidia.com/jetson/common $L4T_RELEASE main" > /etc/apt/sources.list.d/nvidia-jetson.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends cuda-cudart-13-2 libcublas-13-2 libcufft-13-2 libcurand-13-2 libcudnn9-cuda-13; \
+    rm -rf /var/lib/apt/lists/*; \
+    dirname "$(find /usr/local -name 'libcudart.so.13*' | head -1)" > /etc/ld.so.conf.d/cuda-13-2.conf; \
+    ldconfig; ldconfig -p | grep -q libcublasLt.so.13
+ENV NVIDIA_VISIBLE_DEVICES=all NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+FROM cuda-runtime AS build
+ARG ORT_VERSION=1.23.0
+ARG PARALLEL=3
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      cuda-toolkit-13-2 libcudnn9-dev-cuda-13 git build-essential ccache python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/* && python3 -m pip install --break-system-packages --no-cache-dir packaging "cmake>=3.28"
+RUN git clone --recursive --depth 1 --branch "v$ORT_VERSION" https://github.com/microsoft/onnxruntime /onnxruntime
+WORKDIR /onnxruntime
+ENV CCACHE_DIR=/root/.cache/ccache CCACHE_MAXSIZE=20G
+RUN --mount=type=cache,target=/root/.cache/ccache \
+    ./build.sh --config Release --update --build --build_shared_lib --skip_tests --use_cache \
+      --parallel "$PARALLEL" --nvcc_threads 1 --use_cuda --cuda_home /usr/local/cuda-13.2 --cudnn_home /usr \
+      --cmake_extra_defines CMAKE_CUDA_ARCHITECTURES=87 onnxruntime_BUILD_UNIT_TESTS=OFF \
+      --compile_no_warning_as_error --allow_running_as_root
+RUN mkdir -p /out/lib && \
+    cp -P build/Linux/Release/libonnxruntime.so* build/Linux/Release/libonnxruntime_providers_cuda.so build/Linux/Release/libonnxruntime_providers_shared.so /out/lib/ && \
+    cp LICENSE ThirdPartyNotices.txt /out/
+
+FROM cuda-runtime
+ARG ORT_VERSION=1.23.0
+LABEL org.opencontainers.image.title="onnxruntime-jetson-orin" org.opencontainers.image.version="$ORT_VERSION" org.opencontainers.image.licenses="MIT"
+COPY --from=build /out/lib/ /opt/onnxruntime/lib/
+COPY --from=build /out/LICENSE /out/ThirdPartyNotices.txt /usr/share/doc/onnxruntime/
+RUN set -eux; \
+    missing="$(ldd /opt/onnxruntime/lib/libonnxruntime_providers_cuda.so | grep 'not found' | grep -v libcuda.so || true)"; \
+    if [ -n "$missing" ]; then echo "$missing"; exit 1; fi; \
+    test -f "/opt/onnxruntime/lib/libonnxruntime.so.$ORT_VERSION"

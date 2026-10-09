@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1
+ARG GO_IMAGE=golang:1.26.9-bookworm
+ARG CUDA_IMAGE=nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+ARG ORT_VERSION=1.22.0
+
+FROM ${GO_IMAGE} AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+ARG VERSION=devel
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X github.com/androiddrew/parakeet-run/internal/cli.version=$VERSION" -o /out/parakeet-run ./cmd/parakeet-run && \
+    go run scripts/collect-licenses.go /out/licenses
+
+FROM build AS models
+ARG BAKE_MODELS=1
+RUN mkdir /assets && if [ "$BAKE_MODELS" = 1 ]; then /out/parakeet-run pull --dir /assets; fi
+
+FROM ${GO_IMAGE} AS ort
+ARG ORT_VERSION
+ARG ORT_SHA256=2a19dbfa403672ec27378c3d40a68f793ac7a6327712cd0e8240a86be2b10c55
+RUN set -eux; \
+    test "$(dpkg --print-architecture)" = amd64; \
+    curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-linux-x64-gpu-$ORT_VERSION.tgz" -o /ort.tgz; \
+    echo "$ORT_SHA256  /ort.tgz" | sha256sum -c -; \
+    mkdir /ort; tar xzf /ort.tgz --strip-components=1 --no-same-owner -C /ort
+
+FROM ${CUDA_IMAGE}
+ARG VERSION=devel
+LABEL org.opencontainers.image.title="parakeet-run" \
+      org.opencontainers.image.source="https://github.com/androiddrew/parakeet-run" \
+      org.opencontainers.image.version="$VERSION" org.opencontainers.image.licenses="Apache-2.0"
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd --uid 10001 --user-group --home-dir /var/lib/parakeet-run --no-create-home --shell /usr/sbin/nologin parakeet-run
+COPY --from=ort /ort/lib/libonnxruntime.so* /ort/lib/libonnxruntime_providers_shared.so /ort/lib/libonnxruntime_providers_cuda.so /opt/onnxruntime/lib/
+COPY --from=ort /ort/LICENSE /ort/ThirdPartyNotices.txt /usr/share/doc/parakeet-run/onnxruntime/
+COPY --from=build /out/parakeet-run /usr/local/bin/parakeet-run
+COPY --from=build /out/licenses/ /usr/share/doc/parakeet-run/go-dependencies/
+COPY LICENSE NOTICE THIRD_PARTY.md ASSETS.md /usr/share/doc/parakeet-run/
+COPY third_party/ /usr/share/doc/parakeet-run/third_party/
+COPY docker/config.cuda.yaml /etc/parakeet-run/config.yaml
+COPY --from=models --chown=10001:10001 /assets/ /var/lib/parakeet-run/assets/
+ENV PARAKEET_RUN_CONFIG=/etc/parakeet-run/config.yaml
+USER 10001:10001
+WORKDIR /var/lib/parakeet-run
+EXPOSE 8880
+VOLUME /var/lib/parakeet-run/assets
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s CMD ["parakeet-run", "_healthcheck"]
+ENTRYPOINT ["parakeet-run"]
+CMD ["serve"]

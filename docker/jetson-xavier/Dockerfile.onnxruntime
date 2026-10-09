@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1
+# Adapted from kokoro-run v0.2.1. Build on Xavier / JetPack 5, L4T r35.
+# The image supplies CUDA 12.2 + cuda-compat and cuDNN 9.3 with sm_72 kernels.
+ARG CUDA_MANIFEST=https://developer.download.nvidia.com/compute/cuda/redist/redistrib_12.2.0.json
+ARG CUDNN_MANIFEST=https://developer.download.nvidia.com/compute/cudnn/redist/redistrib_9.3.0.json
+FROM ubuntu:22.04 AS cuda-runtime
+ARG CUDA_MANIFEST
+ARG CUDNN_MANIFEST
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 xz-utils && rm -rf /var/lib/apt/lists/*
+COPY --chmod=755 nvidia-redist.py /usr/local/bin/
+RUN nvidia-redist.py "$CUDA_MANIFEST" /usr/local/cuda-12.2 cuda_cudart libcublas libcufft libcurand cuda_compat && \
+    nvidia-redist.py "$CUDNN_MANIFEST" /usr/local/cudnn-9.3 cudnn && \
+    rm -rf /usr/local/cuda-12.2/include /usr/local/cudnn-9.3/include && \
+    find /usr/local/cuda-12.2 /usr/local/cudnn-9.3 -name '*_static*.a' -delete
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.2/compat:/usr/local/cuda-12.2/lib:/usr/local/cudnn-9.3/lib \
+    NVIDIA_VISIBLE_DEVICES=all NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+FROM ubuntu:22.04 AS build
+ARG CUDA_MANIFEST
+ARG CUDNN_MANIFEST
+ARG ORT_VERSION=1.22.2
+ARG PARALLEL=2
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 python3-pip xz-utils git build-essential ccache && \
+    rm -rf /var/lib/apt/lists/* && python3 -m pip install --no-cache-dir packaging "cmake>=3.28,<4"
+COPY --chmod=755 nvidia-redist.py /usr/local/bin/
+RUN nvidia-redist.py "$CUDA_MANIFEST" /usr/local/cuda-12.2 \
+      cuda_cudart cuda_nvcc cuda_cccl cuda_nvrtc cuda_nvtx cuda_profiler_api cuda_cupti libcublas libcufft libcurand libcusparse && \
+    nvidia-redist.py "$CUDNN_MANIFEST" /usr/local/cudnn-9.3 cudnn && ln -s lib /usr/local/cuda-12.2/lib64
+RUN git clone --recursive --depth 1 --branch "v$ORT_VERSION" https://github.com/microsoft/onnxruntime /onnxruntime
+WORKDIR /onnxruntime
+# cuDNN flash attention requires sm_80+. Build its unsupported stub on Xavier;
+# this also avoids the nvcc 12.2 / cuDNN frontend JSON compilation incompatibility.
+RUN set -eux; \
+    f=onnxruntime/contrib_ops/cuda/bert/cudnn_fmha/cudnn_flash_attention.cu; \
+    sed -i 's|^#if CUDNN_MAJOR < 9$|#if 1  // parakeet-run: stub on Xavier|' "$f"; \
+    grep -q '^#if 1  // parakeet-run' "$f"
+ENV CCACHE_DIR=/root/.cache/ccache CCACHE_MAXSIZE=20G
+RUN --mount=type=cache,target=/root/.cache/ccache \
+    ./build.sh --config Release --update --build --build_shared_lib --skip_tests --use_cache \
+      --parallel "$PARALLEL" --nvcc_threads 1 --use_cuda --cuda_version 12.2 \
+      --cuda_home /usr/local/cuda-12.2 --cudnn_home /usr/local/cudnn-9.3 \
+      --cmake_extra_defines CMAKE_CUDA_ARCHITECTURES=72 onnxruntime_BUILD_UNIT_TESTS=OFF \
+        onnxruntime_USE_FLASH_ATTENTION=OFF onnxruntime_USE_MEMORY_EFFICIENT_ATTENTION=OFF \
+      --compile_no_warning_as_error --allow_running_as_root
+RUN mkdir -p /out/lib && \
+    cp -P build/Linux/Release/libonnxruntime.so* build/Linux/Release/libonnxruntime_providers_cuda.so build/Linux/Release/libonnxruntime_providers_shared.so /out/lib/ && \
+    cp LICENSE ThirdPartyNotices.txt /out/
+
+FROM cuda-runtime
+ARG ORT_VERSION=1.22.2
+LABEL org.opencontainers.image.title="onnxruntime-jetson-xavier" org.opencontainers.image.version="$ORT_VERSION" org.opencontainers.image.licenses="MIT"
+COPY --from=build /out/lib/ /opt/onnxruntime/lib/
+COPY --from=build /out/LICENSE /out/ThirdPartyNotices.txt /usr/share/doc/onnxruntime/
+RUN set -eux; \
+    missing="$(ldd /opt/onnxruntime/lib/libonnxruntime_providers_cuda.so | grep 'not found' || true)"; \
+    if [ -n "$missing" ]; then echo "$missing"; exit 1; fi; \
+    test -f "/opt/onnxruntime/lib/libonnxruntime.so.$ORT_VERSION"

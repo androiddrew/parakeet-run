@@ -1,0 +1,7 @@
+.git
+tmp
+assets
+bin
+dist
+coverage.out
+*.test

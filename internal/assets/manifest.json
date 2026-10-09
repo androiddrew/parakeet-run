@@ -1,0 +1,7 @@
+[
+  {"name":"README.md","size":1207,"sha256":"95d330fef1070f22cc4d4e380fbf5913253b44f7b71fabae997f6cdf65fe1714"},
+  {"name":"nemo128.onnx","size":139764,"sha256":"a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f"},
+  {"name":"encoder-model.onnx","size":41770866,"sha256":"98a74b21b4cc0017c1e7030319a4a96f4a9506e50f0708f3a516d02a77c96bb1"},
+  {"name":"encoder-model.onnx.data","size":2435420160,"sha256":"9a22d372c51455c34f13405da2520baefb7125bd16981397561423ed32d24f36"},
+  {"name":"decoder_joint-model.onnx","size":72520893,"sha256":"e978ddf6688527182c10fde2eb4b83068421648985ef23f7a86be732be8706c1"}
+]

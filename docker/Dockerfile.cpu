@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1
+ARG GO_IMAGE=golang:1.26.9-bookworm
+ARG ORT_VERSION=1.22.0
+
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS source
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+
+FROM source AS build
+ARG TARGETARCH
+ARG VERSION=devel
+RUN apt-get update && apt-get install -y --no-install-recommends "crossbuild-essential-$TARGETARCH" && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    set -eux; \
+    case "$TARGETARCH" in amd64) cc=x86_64-linux-gnu-gcc ;; arm64) cc=aarch64-linux-gnu-gcc ;; *) exit 1 ;; esac; \
+    CGO_ENABLED=1 GOOS=linux GOARCH="$TARGETARCH" CC="$cc" go build -trimpath \
+      -ldflags "-s -w -X github.com/androiddrew/parakeet-run/internal/cli.version=$VERSION" -o /out/parakeet-run ./cmd/parakeet-run; \
+    go run scripts/collect-licenses.go /out/licenses
+
+FROM source AS models
+ARG BAKE_MODELS=1
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    go build -o /pull ./cmd/parakeet-run
+RUN mkdir /assets && if [ "$BAKE_MODELS" = 1 ]; then /pull pull --dir /assets; fi
+
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS ort
+ARG TARGETARCH
+ARG ORT_VERSION
+ARG ORT_SHA256_amd64=8344d55f93d5bc5021ce342db50f62079daf39aaafb5d311a451846228be49b3
+ARG ORT_SHA256_arm64=bb76395092d150b52c7092dc6b8f2fe4d80f0f3bf0416d2f269193e347e24702
+RUN set -eux; \
+    case "$TARGETARCH" in amd64) arch=x64; sum="$ORT_SHA256_amd64" ;; arm64) arch=aarch64; sum="$ORT_SHA256_arm64" ;; *) exit 1 ;; esac; \
+    curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-linux-$arch-$ORT_VERSION.tgz" -o /ort.tgz; \
+    echo "$sum  /ort.tgz" | sha256sum -c -; \
+    mkdir /ort; tar xzf /ort.tgz --strip-components=1 --no-same-owner -C /ort
+
+FROM debian:bookworm-slim
+ARG VERSION=devel
+LABEL org.opencontainers.image.title="parakeet-run" \
+      org.opencontainers.image.source="https://github.com/androiddrew/parakeet-run" \
+      org.opencontainers.image.version="$VERSION" org.opencontainers.image.licenses="Apache-2.0"
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates ffmpeg && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd --uid 10001 --user-group --home-dir /var/lib/parakeet-run --no-create-home --shell /usr/sbin/nologin parakeet-run
+COPY --from=ort /ort/lib/libonnxruntime.so* /opt/onnxruntime/lib/
+COPY --from=ort /ort/LICENSE /ort/ThirdPartyNotices.txt /usr/share/doc/parakeet-run/onnxruntime/
+COPY --from=build /out/parakeet-run /usr/local/bin/parakeet-run
+COPY --from=build /out/licenses/ /usr/share/doc/parakeet-run/go-dependencies/
+COPY LICENSE NOTICE THIRD_PARTY.md ASSETS.md /usr/share/doc/parakeet-run/
+COPY third_party/ /usr/share/doc/parakeet-run/third_party/
+COPY docker/config.yaml /etc/parakeet-run/config.yaml
+COPY --from=models --chown=10001:10001 /assets/ /var/lib/parakeet-run/assets/
+ENV PARAKEET_RUN_CONFIG=/etc/parakeet-run/config.yaml
+USER 10001:10001
+WORKDIR /var/lib/parakeet-run
+EXPOSE 8880
+VOLUME /var/lib/parakeet-run/assets
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s CMD ["parakeet-run", "_healthcheck"]
+ENTRYPOINT ["parakeet-run"]
+CMD ["serve"]
