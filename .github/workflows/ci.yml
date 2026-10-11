@@ -22,6 +22,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
+          check-latest: true # the runner's cached Go may lack security fixes
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -75,5 +76,9 @@ jobs:
           # version 5"). Lint on the declared minimum until a release supports it;
           # the test job still builds and tests on stable.
           go-version: "1.26.x"
+          # Without this, a cached older patch release on the runner fails govulncheck.
+          check-latest: true
+      - name: Go version
+        run: go version
       - run: make lint
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck= -pyflakes=
