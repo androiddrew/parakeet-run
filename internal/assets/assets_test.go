@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDownloadIntegrityAndAtomicity(t *testing.T) {
@@ -55,5 +56,39 @@ func TestCancelledDownload(t *testing.T) {
 	err := Download(ctx, http.DefaultClient, "http://127.0.0.1/", t.TempDir(), File{Name: "model", Size: 4})
 	if err == nil {
 		t.Fatal("cancelled download succeeded")
+	}
+}
+
+func TestClientHasNoOverallTimeout(t *testing.T) {
+	// A total timeout would fail the 2.4 GB encoder download on slow links.
+	if c := Client(); c.Timeout != 0 {
+		t.Fatalf("client timeout %v", c.Timeout)
+	}
+}
+
+func TestDownloadCancelledMidTransfer(t *testing.T) {
+	file := File{Name: "model.onnx", Size: 1 << 20, SHA256: "unused"}
+	ctx, cancel := context.WithCancel(context.Background())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(file.Size))
+		w.Write(make([]byte, 1024))
+		w.(http.Flusher).Flush()
+		cancel()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	done := make(chan error, 1)
+	go func() { done <- Download(ctx, Client(), srv.URL, dir, file) }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled download succeeded")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("cancellation did not stop the download")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatal("temporary download leaked")
 	}
 }

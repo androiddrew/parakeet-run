@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const Revision = "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"
@@ -77,6 +78,15 @@ func VerifyAll(ctx context.Context, dir string) error {
 		}
 	}
 	return nil
+}
+
+// Client returns the HTTP client for Pull. It has no overall timeout, since the
+// encoder weights are 2.4 GB and a slow link can take hours; the context
+// cancels a download, and a server must start responding within a minute.
+func Client() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = time.Minute
+	return &http.Client{Transport: transport}
 }
 
 // Pull verifies existing files, then downloads only missing or invalid assets.

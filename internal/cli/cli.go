@@ -114,7 +114,7 @@ func pullCommand() *cobra.Command {
 		if l.Config.Model.Dir == "" {
 			return errors.New("model directory must not be empty")
 		}
-		return assets.Pull(cmd.Context(), &http.Client{Timeout: 30 * time.Minute}, l.Config.Model.Dir, func(s string) { fmt.Fprintln(cmd.ErrOrStderr(), s) })
+		return assets.Pull(cmd.Context(), assets.Client(), l.Config.Model.Dir, func(s string) { fmt.Fprintln(cmd.ErrOrStderr(), s) })
 	}}
 	cmd.Flags().StringVar(&dir, "dir", "", "Destination directory (overrides --model-dir)")
 	return cmd
