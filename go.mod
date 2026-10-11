@@ -1,6 +1,6 @@
 module github.com/androiddrew/parakeet-run
 
-go 1.26.9
+go 1.26.0
 
 require (
 	github.com/androiddrew/go-parakeet v0.1.0

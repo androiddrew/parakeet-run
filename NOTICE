@@ -4,7 +4,7 @@ Copyright (c) 2026 Drew Bednar
 Original service code is licensed under the Apache License, Version 2.0.
 Repository conventions and Jetson runtime recipes are adapted from
 androiddrew/kokoro-run v0.2.1, Copyright (c) 2026 Drew Bednar, Apache-2.0.
-The recipes are modified for Parakeet, FP32 assets, mandatory FFmpeg, and Go 1.26.9.
+The recipes are modified for Parakeet, FP32 assets, and mandatory FFmpeg.
 
 go-parakeet v0.1.0, Copyright (c) 2026 Drew Bednar, is Apache-2.0.
 Its TDT decisions and whitespace handling adapt onnx-asr,

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build the CGO binary on Ubuntu 22.04 to match the Xavier runtime's glibc.
-ARG GO_IMAGE=golang:1.26.9-bookworm
+ARG GO_IMAGE=golang:1.27-bookworm
 ARG ORT_IMAGE=onnxruntime-jetson-xavier:1.22.2-cuda12.2
 FROM ${GO_IMAGE} AS toolchain
 FROM ubuntu:22.04 AS build

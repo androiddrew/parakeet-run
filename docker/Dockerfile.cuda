@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG GO_IMAGE=golang:1.26.9-bookworm
+ARG GO_IMAGE=golang:1.27-bookworm
 ARG CUDA_IMAGE=nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 ARG ORT_VERSION=1.22.0
 

@@ -1,24 +1,31 @@
 name: Release
+
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
+
 permissions:
   contents: read
+
+env:
+  # The binary needs CGO, so each architecture builds natively on its own runner.
+  # Debian 12 keeps the binaries compatible with glibc 2.36 and newer; the image
+  # tracks the latest Go patch release.
+  BUILD_IMAGE: golang:1.27-bookworm
+
 jobs:
   notes:
+    name: Check release notes
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - name: Require a populated versioned changelog section
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: bash scripts/release-notes.sh "$RELEASE_TAG" > release-notes.md
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-notes
-          path: release-notes.md
+      - uses: actions/checkout@v7
+      - name: CHANGELOG.md has a section for the tag
+        run: scripts/release-notes.sh "$GITHUB_REF_NAME"
+
   build:
+    name: Build linux/${{ matrix.arch }}
     needs: notes
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -27,70 +34,76 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
-      - name: Build CGO binary on Debian bookworm
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          python-version: "3.12"
+      - name: Build
         run: |
-          mkdir -p dist/package
-          docker run --rm -e RELEASE_TAG -v "$PWD:/src" -w /src golang:1.26.9-bookworm sh -ec '
-            go mod download
-            go test ./...
-            CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X github.com/androiddrew/parakeet-run/internal/cli.version=$RELEASE_TAG" -o dist/package/parakeet-run ./cmd/parakeet-run
-            go run scripts/collect-licenses.go dist/package/go-dependencies
-          '
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Install native runtime
+          docker run --rm -v "$PWD:/src" -w /src -e VERSION="$GITHUB_REF_NAME" \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" "$BUILD_IMAGE" sh -euc '
+              git config --global --add safe.directory /src
+              go version
+              go test ./...
+              CGO_ENABLED=1 go build -trimpath \
+                -ldflags "-s -w -X github.com/androiddrew/parakeet-run/internal/cli.version=$VERSION" \
+                -o dist/parakeet-run ./cmd/parakeet-run
+              go run scripts/collect-licenses.go dist/go-dependencies
+              chown -R "$HOST_UID:$HOST_GID" dist'
+      - name: Install FFmpeg and ONNX Runtime
         env:
           ARCH: ${{ matrix.arch }}
-        run: bash scripts/install-ort.sh "$ARCH" "$RUNNER_TEMP/ort"
-      - uses: actions/cache@v4
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          bash scripts/install-ort.sh "$ARCH" "$RUNNER_TEMP/ort"
+      - name: Cache the Parakeet model
+        uses: actions/cache@v6
         with:
           path: assets
           key: parakeet-fp32-${{ hashFiles('internal/assets/manifest.json') }}
-      - name: Smoke-test the release binary
+      - name: Smoke test the binary
         run: |
-          dist/package/parakeet-run pull
-          dist/package/parakeet-run doctor --ort-library "$RUNNER_TEMP/ort/lib/libonnxruntime.so"
+          test "$(dist/parakeet-run --version)" = "parakeet-run version $GITHUB_REF_NAME"
+          dist/parakeet-run pull
+          dist/parakeet-run doctor --ort-library "$RUNNER_TEMP/ort/lib/libonnxruntime.so"
           python -m pip install -r scripts/sdk-requirements.txt
-          python scripts/sdk-smoke.py --binary dist/package/parakeet-run --ort "$RUNNER_TEMP/ort/lib/libonnxruntime.so"
+          python scripts/sdk-smoke.py --binary dist/parakeet-run --ort "$RUNNER_TEMP/ort/lib/libonnxruntime.so"
       - name: Package
-        env:
-          ARCH: ${{ matrix.arch }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          sudo cp README.md ASSETS.md LICENSE NOTICE THIRD_PARTY.md CHANGELOG.md dist/package/
-          sudo cp -r third_party dist/package/
-          tar -czf "dist/parakeet-run_${RELEASE_TAG}_linux_${ARCH}.tar.gz" -C dist/package .
-      - uses: actions/upload-artifact@v4
+          name="parakeet-run_${GITHUB_REF_NAME}_linux_${{ matrix.arch }}"
+          mkdir -p "dist/$name"
+          cp -r dist/parakeet-run dist/go-dependencies LICENSE NOTICE README.md ASSETS.md THIRD_PARTY.md CHANGELOG.md \
+            third_party "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v7
         with:
-          name: linux-${{ matrix.arch }}
+          name: parakeet-run-linux-${{ matrix.arch }}
           path: dist/*.tar.gz
-  publish:
-    needs: [notes, build]
+          if-no-files-found: error
+
+  release:
+    needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
-          pattern: linux-*
-          merge-multiple: true
+          pattern: parakeet-run-linux-*
           path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-notes
-      - name: Checksums and GitHub release
+          merge-multiple: true
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        working-directory: dist
         run: |
-          sha256sum ./*.tar.gz > SHA256SUMS
-          gh release create "$RELEASE_TAG" ./*.tar.gz SHA256SUMS --verify-tag --title "$RELEASE_TAG" --notes-file ../release-notes.md
+          # The tag's CHANGELOG.md section is the release notes; no section, no release.
+          scripts/release-notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+          cd dist
+          sha256sum parakeet-run_*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --notes-file "$RUNNER_TEMP/notes.md" --title "parakeet-run $GITHUB_REF_NAME" \
+            parakeet-run_*.tar.gz SHA256SUMS

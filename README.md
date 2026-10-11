@@ -8,7 +8,7 @@ conventions and Linux CPU, CUDA, Orin, and Xavier deployment targets.
 
 ## Quick start
 
-Requirements: **Go 1.26.9+**, CGO and a C compiler, FFmpeg, the FP32 model bundle,
+Requirements: **Go 1.26+**, CGO and a C compiler, FFmpeg, the FP32 model bundle,
 and an ONNX Runtime shared library exposing C API 22. Serving needs no Python,
 NeMo, or PyTorch. Linux amd64 and arm64 binaries are released; Jetson images are
 built on the device.
