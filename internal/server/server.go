@@ -16,17 +16,20 @@ import (
 	"time"
 
 	parakeet "github.com/androiddrew/go-parakeet"
-	"github.com/androiddrew/parakeet-run/internal/audio"
-	"github.com/androiddrew/parakeet-run/internal/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/androiddrew/parakeet-run/internal/audio"
+	"github.com/androiddrew/parakeet-run/internal/config"
 )
 
+// Decoder converts an uploaded file to 16 kHz mono samples. audio.Decoder is one.
 type Decoder interface {
 	Decode(context.Context, string) ([]float32, error)
 }
 
+// Server is the HTTP handler for the API, health, readiness and metrics.
 type Server struct {
 	config       config.Config
 	pool         *Pool
@@ -39,6 +42,8 @@ type Server struct {
 	audioSeconds prometheus.Counter
 }
 
+// New returns a server lending pool's engines to transcription requests. A nil
+// logger uses slog.Default.
 func New(c config.Config, pool *Pool, decoder Decoder, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
@@ -93,6 +98,7 @@ func New(c config.Config, pool *Pool, decoder Decoder, logger *slog.Logger) *Ser
 	return s
 }
 
+// ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.handler.ServeHTTP(w, r) }
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +144,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	s.transcribe(w, r)
 }
 
+// apiError is an OpenAI-style error body with its HTTP status.
 type apiError struct {
 	status  int
 	Message string `json:"message"`
@@ -154,6 +161,8 @@ func tooLarge() *apiError {
 	return &apiError{status: 413, Message: "Audio exceeds the configured upload or decoded-duration limit.", Type: "invalid_request_error", Param: "file", Code: "audio_too_large"}
 }
 
+// classify maps an error to the API error a client sees. Native and decoder
+// details are kept out of it.
 func classify(err error) *apiError {
 	var api *apiError
 	if errors.As(err, &api) {

@@ -14,7 +14,7 @@ The service is Apache-2.0; model and dependency licenses remain separate.
 | `nemo128.onnx` preprocessing graph and inference decision provenance | [onnx-asr](https://github.com/istupakov/onnx-asr) | MIT, Ilya Stupakov; upstream notice is included by the license collector |
 | Cobra and pflag | `github.com/spf13/cobra`, `github.com/spf13/pflag` | Apache-2.0 / BSD-3-Clause |
 | Prometheus client | `github.com/prometheus/client_golang` | Apache-2.0 |
-| YAML | `gopkg.in/yaml.v3` | MIT / Apache-2.0 |
+| YAML | `go.yaml.in/yaml/v3` | MIT / Apache-2.0 |
 | FFmpeg | Distribution FFmpeg packages | Package-specific LGPL/GPL terms; invoked as a subprocess |
 | CUDA/cuDNN | NVIDIA images or redistributables | NVIDIA distribution terms; original notices remain in the images |
 

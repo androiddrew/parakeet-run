@@ -7,8 +7,8 @@
 | Jetson Orin | arm64 | JetPack 7.2 / L4T r39.2; CUDA 13.2; cuDNN 9; ORT 1.23.0; sm_87 |
 | Jetson Xavier NX/AGX | arm64 | JetPack 5 / L4T r35 host; Ubuntu 22.04 container; CUDA 12.2 + cuda-compat; cuDNN 9.3; ORT 1.22.2; sm_72 |
 
-The Jetson recipes adapt `kokoro-run v0.2.1`. They are supplied for manual
-on-device validation and have not been built on this amd64 development host.
+The Jetson recipes adapt `kokoro-run v0.2.1`. They are supplied for on-device
+build and validation.
 The Parakeet FP32 bundle is substantially larger than Kokoro; verify available
 RAM, swap, disk space, startup peaks, and steady-state memory on each device.
 
@@ -23,9 +23,14 @@ docker run --rm --runtime nvidia parakeet-run:jetson-orin doctor
 docker run --rm --runtime nvidia -p 127.0.0.1:8880:8880 parakeet-run:jetson-orin
 ```
 
-The runtime build defaults to three compilation jobs and one nvcc thread. To
-adjust it, invoke Docker directly with `--build-arg PARALLEL=1` and the same
-Dockerfile, context, and tag shown by `make -n image-jetson-orin-onnxruntime`.
+To run it as a service, use [jetson-orin/compose.yaml](jetson-orin/compose.yaml):
+`docker compose -f docker/jetson-orin/compose.yaml up -d`. It keeps the model in
+a named volume, restarts the service, allows time for a graceful shutdown, and
+shows how to require an API key.
+
+The runtime build defaults to three compilation jobs and one nvcc thread. Lower
+it on devices with less memory, for example
+`make image-jetson-orin-onnxruntime JETSON_PARALLEL=1`.
 BuildKit retains compiled objects in a ccache mount across rebuilds.
 
 ## Jetson Xavier
@@ -37,16 +42,17 @@ docker run --rm --runtime nvidia parakeet-run:jetson-xavier doctor
 docker run --rm --runtime nvidia -p 127.0.0.1:8880:8880 parakeet-run:jetson-xavier
 ```
 
-The runtime build defaults to two jobs. Its CUDA compatibility directory must
+The runtime build defaults to two jobs (`XAVIER_PARALLEL`). Its CUDA compatibility directory must
 precede the host-injected CUDA 11.4 driver libraries. NVIDIA Tegra redistributables
 are verified against their manifests. Attention features requiring sm_80 are
 disabled. The application is compiled against Ubuntu 22.04's glibc and joins
 the video group (gid 44) for device access.
 
 For both devices, runtime images can be reused from matching `kokoro-run`
-builds when the tag/stack matches. `--build-arg ORT_IMAGE=...` selects a different
-prepared runtime image. Changing ORT versions also requires updating archive
-checksums where applicable and rechecking model/provider compatibility.
+builds when the tag/stack matches. `JETSON_ORIN_ORT_IMAGE=...` or
+`JETSON_XAVIER_ORT_IMAGE=...` selects a different prepared runtime image.
+Changing ORT versions also requires updating archive checksums where applicable
+and rechecking model/provider compatibility.
 
 ## Manual acceptance
 

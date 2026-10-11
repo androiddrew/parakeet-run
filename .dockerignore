@@ -1,7 +1,12 @@
 .git
+.github
 tmp
 assets
 bin
 dist
 coverage.out
 *.test
+*.onnx
+*.onnx.data
+*.wav
+__pycache__

@@ -16,13 +16,19 @@ import (
 	"github.com/androiddrew/parakeet-run/internal/config"
 )
 
+// SampleRate is the model's input rate, in Hz.
 const SampleRate = 16000
 
+// ErrInvalid means the file isn't decodable, supported audio.
 var ErrInvalid = errors.New("invalid audio")
+
+// ErrTooLong means the decoded audio exceeds the configured maximum duration.
 var ErrTooLong = errors.New("audio exceeds maximum decoded duration")
 
+// Decoder converts media files to model input with FFmpeg.
 type Decoder struct{ Config config.Audio }
 
+// Check reports whether the FFmpeg executable can be found.
 func (d Decoder) Check() error { _, err := exec.LookPath(d.Config.FFmpeg); return err }
 
 // tailBuffer bounds native decoder diagnostics independently of input size.
@@ -40,6 +46,8 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+// Decode converts the first audio stream of the file at path to 16 kHz mono
+// float32 samples, within the configured duration and timeout.
 func (d Decoder) Decode(ctx context.Context, path string) ([]float32, error) {
 	ctx, cancel := context.WithTimeout(ctx, d.Config.DecodeTimeout)
 	defer cancel()

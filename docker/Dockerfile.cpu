@@ -1,5 +1,13 @@
 # syntax=docker/dockerfile:1
-ARG GO_IMAGE=golang:1.26.9-bookworm
+#
+# The CPU image, for linux/amd64 and linux/arm64. Build it with `make image-cpu`.
+#
+#   BAKE_MODELS  1 bakes the FP32 Parakeet bundle (about 2.5 GB), pulled with
+#                the manifest's SHA-256 checks; 0 gives a slim image whose
+#                assets volume needs `parakeet-run pull` once
+#   VERSION      stamped into the binary
+
+ARG GO_IMAGE=golang:1.27-bookworm
 ARG ORT_VERSION=1.22.0
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS source

@@ -13,11 +13,14 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
+// Prefix starts every environment variable name, which is the prefix and the
+// setting's YAML path in upper case, such as PARAKEET_RUN_SERVER_LISTEN.
 const Prefix = "PARAKEET_RUN_"
 
+// Config is every setting, in its YAML layout. APIKey is never read from YAML.
 type Config struct {
 	Runtime Runtime `yaml:"runtime"`
 	Model   Model   `yaml:"model"`
@@ -27,6 +30,7 @@ type Config struct {
 	APIKey  string  `yaml:"-" json:"-"`
 }
 
+// Runtime selects ONNX Runtime and its execution provider.
 type Runtime struct {
 	Library  string `yaml:"library"`
 	Provider string `yaml:"provider"`
@@ -35,6 +39,7 @@ type Runtime struct {
 	Verbose  bool   `yaml:"verbose"`
 }
 
+// Model locates the model bundle and names it, and sets the inference windows.
 type Model struct {
 	Dir     string        `yaml:"dir"`
 	ID      string        `yaml:"id"`
@@ -43,12 +48,14 @@ type Model struct {
 	Overlap time.Duration `yaml:"overlap"`
 }
 
+// Audio bounds decoding with FFmpeg.
 type Audio struct {
 	FFmpeg        string        `yaml:"ffmpeg"`
 	MaxDuration   time.Duration `yaml:"max_duration"`
 	DecodeTimeout time.Duration `yaml:"decode_timeout"`
 }
 
+// Server bounds the HTTP server's capacity, uploads and timeouts.
 type Server struct {
 	Listen          string        `yaml:"listen"`
 	Replicas        int           `yaml:"replicas"`
@@ -64,11 +71,13 @@ type Server struct {
 	Metrics         bool          `yaml:"metrics"`
 }
 
+// Logging selects the log format and level.
 type Logging struct {
 	Format string `yaml:"format"`
 	Level  string `yaml:"level"`
 }
 
+// Defaults are the built-in settings.
 func Defaults() Config {
 	return Config{
 		Runtime: Runtime{Library: "libonnxruntime.so", Provider: "cpu", Threads: 1},
@@ -81,11 +90,14 @@ func Defaults() Config {
 	}
 }
 
+// Loaded is a resolved Config with the source of each setting that is not
+// a default: the config file's path, an environment variable or "flag".
 type Loaded struct {
 	Config  Config
 	Sources map[string]string
 }
 
+// fields calls fn with each leaf setting's dotted YAML path and value.
 func fields(v reflect.Value, prefix string, fn func(string, reflect.Value) error) error {
 	for i := range v.NumField() {
 		name := v.Type().Field(i).Tag.Get("yaml")
@@ -107,6 +119,7 @@ func fields(v reflect.Value, prefix string, fn func(string, reflect.Value) error
 	return nil
 }
 
+// set parses raw into v, by v's type.
 func set(v reflect.Value, raw string) error {
 	if v.Type() == reflect.TypeFor[time.Duration]() {
 		d, err := time.ParseDuration(raw)
@@ -244,6 +257,7 @@ func Load(path string, overrides map[string]string) (Loaded, error) {
 	return l, l.Config.Validate()
 }
 
+// Validate reports every invalid setting.
 func (c Config) Validate() error {
 	var errs []error
 	check := func(ok bool, msg string) {
@@ -276,6 +290,8 @@ func (c Config) Validate() error {
 	return errors.Join(errs...)
 }
 
+// Write prints the settings as YAML, commenting each with its source. The API
+// key is never written.
 func (l Loaded) Write(w io.Writer) error {
 	var node yaml.Node
 	if err := node.Encode(l.Config); err != nil {

@@ -1,33 +1,43 @@
 name: CI
+
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   test:
+    name: Test (Go ${{ matrix.go }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        go: ['1.26.9', stable]
+        go: ["1.26.x", "stable"] # declared minimum and latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
-      - uses: actions/setup-python@v5
+          check-latest: true # the runner's cached Go may lack security fixes
+      - uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: bash scripts/install-ort.sh amd64 "$RUNNER_TEMP/ort"
-      - uses: actions/cache@v4
+          python-version: "3.12"
+      - name: Install FFmpeg and ONNX Runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          bash scripts/install-ort.sh amd64 "$RUNNER_TEMP/ort"
+      - name: Cache the Parakeet model
+        uses: actions/cache@v6
         with:
           path: assets
           key: parakeet-fp32-${{ hashFiles('internal/assets/manifest.json') }}
-      - run: make build && bin/parakeet-run pull
+      - name: Build and pull the model
+        run: make build && bin/parakeet-run pull
       - name: Vet and race tests, including real CPU inference
         env:
           PARAKEET_RUN_TEST_ASSETS: ${{ github.workspace }}/assets
@@ -39,23 +49,36 @@ jobs:
           bin/parakeet-run doctor --ort-library "$RUNNER_TEMP/ort/lib/libonnxruntime.so"
           python -m pip install -r scripts/sdk-requirements.txt
           python scripts/sdk-smoke.py --ort "$RUNNER_TEMP/ort/lib/libonnxruntime.so"
-      - name: CPU container inference
-        if: matrix.go == '1.26.9'
+      - name: CPU container (slim) inference
+        if: matrix.go == '1.26.x'
         run: |
-          make image-cpu BAKE_MODELS=0
-          docker run -d --name parakeet-ci -p 127.0.0.1:18880:8880 -v "$PWD/assets:/var/lib/parakeet-run/assets:ro" parakeet-run:cpu
+          make image-cpu IMAGE_PLATFORMS=linux/amd64 BAKE_MODELS=0
+          docker run --rm parakeet-run:cpu --version
+          docker run --rm parakeet-run:cpu config
+          docker run --rm --entrypoint sh parakeet-run:cpu -c \
+            'test -f /opt/onnxruntime/lib/libonnxruntime.so && test -f /usr/share/doc/parakeet-run/THIRD_PARTY.md'
+          docker run -d --name parakeet-ci -p 127.0.0.1:18880:8880 \
+            -v "$PWD/assets:/var/lib/parakeet-run/assets:ro" parakeet-run:cpu
           trap 'docker logs parakeet-ci; docker rm -f -v parakeet-ci' EXIT
           for i in $(seq 1 120); do
             if docker exec parakeet-ci parakeet-run _healthcheck; then break; fi
             sleep 2
           done
           python scripts/sdk-smoke.py --base-url http://127.0.0.1:18880
+
   lint:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: stable
+          # staticcheck v0.8.1 can't read Go 1.27.2's export data ("export data
+          # version 5"). Lint on the declared minimum until a release supports it;
+          # the test job still builds and tests on stable.
+          go-version: "1.26.x"
+          # Without this, a cached older patch release on the runner fails govulncheck.
+          check-latest: true
+      - name: Go version
+        run: go version
       - run: make lint
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck= -pyflakes=

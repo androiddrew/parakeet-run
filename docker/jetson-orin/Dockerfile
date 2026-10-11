@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build on Orin after building the matching native-runtime base.
-ARG GO_IMAGE=golang:1.26.9-bookworm
+ARG GO_IMAGE=golang:1.27-bookworm
 ARG ORT_IMAGE=onnxruntime-jetson-orin:1.23.0-cuda13.2
 FROM ${GO_IMAGE} AS build
 WORKDIR /src
