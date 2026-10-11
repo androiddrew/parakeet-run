@@ -65,13 +65,14 @@ def main():
     parser.add_argument("--assets", default="assets")
     parser.add_argument("--ort", default="libonnxruntime.so")
     parser.add_argument("--provider", choices=("cpu", "cuda"), default="cpu")
-    parser.add_argument("--work-dir", default="tmp")
+    parser.add_argument("--work-dir", help="Parent of the temporary server directory (default: system temp)")
     parser.add_argument("--key", default="sdk-smoke-test-key")
     args = parser.parse_args()
     if args.base_url:
         smoke(args.base_url, args.key)
         return
-    Path(args.work_dir).mkdir(parents=True, exist_ok=True)
+    if args.work_dir:
+        Path(args.work_dir).mkdir(parents=True, exist_ok=True)
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]

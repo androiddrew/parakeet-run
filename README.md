@@ -10,8 +10,8 @@ conventions and Linux CPU, CUDA, Orin, and Xavier deployment targets.
 
 Requirements: **Go 1.26.9+**, CGO and a C compiler, FFmpeg, the FP32 model bundle,
 and an ONNX Runtime shared library exposing C API 22. Serving needs no Python,
-NeMo, or PyTorch. Linux amd64 CPU/CUDA are locally validated; Jetson images are
-provided for on-device build and validation.
+NeMo, or PyTorch. Linux amd64 and arm64 binaries are released; Jetson images are
+built on the device.
 
 ```sh
 make build
@@ -122,9 +122,8 @@ configure an appropriate alias. `GET /v1/models` lists accepted model IDs.
 Open WebUI's standard voice/call mode detects sound and silence in the browser,
 then sends a recorded clip through its backend to `/v1/audio/transcriptions`.
 That workflow uses the ordinary JSON transcription response and does not require
-server-side VAD, `chunking_strategy`, or SSE. This request path was inspected in
-Open WebUI v0.11.4 and its streamed multipart upload was exercised against this
-service. Explicit `language` hints remain unsupported; leaving the language
+server-side VAD, `chunking_strategy`, or SSE. Tested with Open WebUI v0.11.4.
+Explicit `language` hints remain unsupported; leaving the language
 unset avoids a rejected attempt and client-side fallback.
 
 For HTTP 400 errors, the server's `transcription` warning includes `error`,
@@ -268,9 +267,6 @@ Host bind mounts must be readable by UID 10001, and writable for `pull`. See
 
 ## Development and releases
 
-`tmp/` is an ignored scratch workspace, including local plans and validation
-artifacts. Production source and fixtures are outside it.
-
 ```sh
 make test
 make lint
@@ -291,8 +287,8 @@ uv run --with-requirements scripts/sdk-requirements.txt python scripts/sdk-smoke
 ```
 
 CI runs minimum/stable Go, race tests, CPU native/SDK/container tests, formatting,
-staticcheck, and govulncheck. CUDA validation runs on this development machine.
-Jetson runtime/app builds and inference are manually validated on the devices.
+staticcheck, and govulncheck. CUDA and Jetson builds and inference are validated
+by hand on the target hardware.
 
 Track changes in `[Unreleased]` in `CHANGELOG.md`. Before tagging `vX.Y.Z`, create
 a dated version section and reset `[Unreleased]`; update comparison links.

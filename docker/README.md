@@ -7,8 +7,8 @@
 | Jetson Orin | arm64 | JetPack 7.2 / L4T r39.2; CUDA 13.2; cuDNN 9; ORT 1.23.0; sm_87 |
 | Jetson Xavier NX/AGX | arm64 | JetPack 5 / L4T r35 host; Ubuntu 22.04 container; CUDA 12.2 + cuda-compat; cuDNN 9.3; ORT 1.22.2; sm_72 |
 
-The Jetson recipes adapt `kokoro-run v0.2.1`. They are supplied for manual
-on-device validation and have not been built on this amd64 development host.
+The Jetson recipes adapt `kokoro-run v0.2.1`. They are supplied for on-device
+build and validation.
 The Parakeet FP32 bundle is substantially larger than Kokoro; verify available
 RAM, swap, disk space, startup peaks, and steady-state memory on each device.
 
