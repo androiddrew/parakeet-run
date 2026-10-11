@@ -73,7 +73,15 @@ func TestKeyFilePrecedence(t *testing.T) {
 	}
 }
 
+// TestDockerConfigs loads the images' configs, so they can't drift from the
+// settings: an unknown or misspelled key fails here instead of in a container.
 func TestDockerConfigs(t *testing.T) {
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, Prefix) {
+			t.Setenv(name, "") // restored after the test
+			os.Unsetenv(name)
+		}
+	}
 	paths, err := filepath.Glob("../../docker/*.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -88,8 +96,18 @@ func TestDockerConfigs(t *testing.T) {
 	}
 	for _, p := range paths {
 		t.Run(p, func(t *testing.T) {
-			if _, err := Load(p, nil); err != nil {
+			l, err := Load(p, nil)
+			if err != nil {
 				t.Fatal(err)
+			}
+			c, provider := l.Config, "cuda"
+			if filepath.Base(p) == "config.yaml" && filepath.Base(filepath.Dir(p)) == "docker" {
+				provider = "cpu"
+			}
+			if c.Runtime.Provider != provider || c.Server.Listen != ":8880" || c.Model.Dir != "/var/lib/parakeet-run/assets" ||
+				c.Runtime.Library != "/opt/onnxruntime/lib/libonnxruntime.so" {
+				t.Errorf("provider %s, listen %s, model dir %s, library %s",
+					c.Runtime.Provider, c.Server.Listen, c.Model.Dir, c.Runtime.Library)
 			}
 		})
 	}

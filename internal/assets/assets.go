@@ -16,18 +16,23 @@ import (
 	"time"
 )
 
+// Revision is the pinned Hugging Face revision of the ONNX conversion.
 const Revision = "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"
+
+// BaseURL is where Pull downloads the pinned files from.
 const BaseURL = "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/" + Revision + "/"
 
 //go:embed manifest.json
 var manifest []byte
 
+// File is one manifest entry: a file in the model directory and its checks.
 type File struct {
 	Name   string `json:"name"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
 }
 
+// Manifest is the embedded list of model bundle files.
 func Manifest() []File {
 	var files []File
 	if err := json.Unmarshal(manifest, &files); err != nil {
@@ -36,6 +41,7 @@ func Manifest() []File {
 	return files
 }
 
+// contextReader stops reading once ctx is done.
 type contextReader struct {
 	ctx context.Context
 	r   io.Reader
@@ -48,6 +54,7 @@ func (r contextReader) Read(p []byte) (int, error) {
 	return r.r.Read(p)
 }
 
+// Verify checks that file is a regular file in dir with its size and SHA-256.
 func Verify(ctx context.Context, dir string, file File) error {
 	f, err := os.Open(filepath.Join(dir, file.Name))
 	if err != nil {
@@ -71,6 +78,7 @@ func Verify(ctx context.Context, dir string, file File) error {
 	return nil
 }
 
+// VerifyAll verifies every manifest file in dir.
 func VerifyAll(ctx context.Context, dir string) error {
 	for _, f := range Manifest() {
 		if err := Verify(ctx, dir, f); err != nil {
@@ -115,6 +123,8 @@ func Pull(ctx context.Context, client *http.Client, dir string, progress func(st
 	return nil
 }
 
+// Download fetches url into dir as file, checking its size and SHA-256 before
+// atomically renaming it into place. A failure leaves any existing file intact.
 func Download(ctx context.Context, client *http.Client, url, dir string, file File) (err error) {
 	if filepath.Base(file.Name) != file.Name || file.Name == "." || file.Size < 0 {
 		return errors.New("invalid asset manifest entry")

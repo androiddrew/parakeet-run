@@ -2,8 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/spf13/pflag"
+
+	"github.com/androiddrew/parakeet-run/internal/config"
 )
 
 func TestExplicitFlagsAndConfig(t *testing.T) {
@@ -25,6 +30,28 @@ func TestExplicitFlagsAndConfig(t *testing.T) {
 			t.Fatal(out.String())
 		}
 	}
+}
+
+// TestFlagsNameSettings checks that every setting flag names a real setting, so
+// a new flag can't be silently ignored by resolve.
+func TestFlagsNameSettings(t *testing.T) {
+	for _, env := range []string{"CONFIG", "API_KEY"} {
+		t.Setenv(config.Prefix+env, "") // restored after the test
+		os.Unsetenv(config.Prefix + env)
+	}
+	NewCommand().PersistentFlags().VisitAll(func(f *pflag.Flag) {
+		if f.Name == "config" {
+			return
+		}
+		keys := f.Annotations[configKey]
+		if len(keys) != 1 {
+			t.Errorf("--%s names no setting", f.Name)
+			return
+		}
+		if _, err := config.Load("", map[string]string{keys[0]: f.DefValue}); err != nil {
+			t.Errorf("--%s: %v", f.Name, err)
+		}
+	})
 }
 
 func TestPlacementEvidence(t *testing.T) {

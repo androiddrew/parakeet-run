@@ -9,11 +9,14 @@ import (
 	"strings"
 )
 
+// upload is a validated request: the spooled file and its form options.
 type upload struct {
 	path, model, format string
 	stream              bool
 }
 
+// readUpload spools the multipart file to a temporary file and validates the
+// other fields, rejecting anything unsupported.
 func (s *Server) readUpload(w http.ResponseWriter, r *http.Request) (u upload, err error) {
 	u.format = "json"
 	defer func() {
@@ -125,6 +128,7 @@ func (s *Server) readUpload(w http.ResponseWriter, r *http.Request) (u upload, e
 	return u, nil
 }
 
+// uploadError maps a body read error to 413, 408 or 400.
 func uploadError(err error) error {
 	var maxErr *http.MaxBytesError
 	if errors.As(err, &maxErr) {

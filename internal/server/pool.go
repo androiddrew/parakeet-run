@@ -8,7 +8,10 @@ import (
 	"github.com/androiddrew/parakeet-run/internal/engine"
 )
 
+// ErrBusy means every admission slot is taken; the client should retry.
 var ErrBusy = errors.New("request capacity is full")
+
+// ErrUnavailable means no replica loaded, or the pool is stopping.
 var ErrUnavailable = errors.New("no model capacity is available")
 
 // Pool bounds the entire request lifetime, including uploads. A worker is leased
@@ -26,6 +29,8 @@ type Pool struct {
 	requests sync.WaitGroup
 }
 
+// NewPool returns a pool expecting replicas engines, admitting up to queue
+// requests beyond them.
 func NewPool(replicas, queue int) *Pool {
 	return &Pool{idle: make(chan engine.Transcriber, replicas), slots: make(chan struct{}, replicas+queue),
 		stopped: make(chan struct{}), failed: make(chan struct{}), pending: replicas}
@@ -44,6 +49,8 @@ func (p *Pool) Add(e engine.Transcriber) bool {
 	return true
 }
 
+// Fail records that a replica couldn't be loaded. Once every replica has
+// failed, waiting and new requests get ErrUnavailable.
 func (p *Pool) Fail() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -56,6 +63,8 @@ func (p *Pool) Fail() {
 	}
 }
 
+// Admit takes an admission slot for a request's whole lifetime, or returns
+// ErrBusy or ErrUnavailable. Each success needs one ReleaseAdmission.
 func (p *Pool) Admit() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -71,8 +80,11 @@ func (p *Pool) Admit() error {
 	}
 }
 
+// ReleaseAdmission returns an admission slot.
 func (p *Pool) ReleaseAdmission() { <-p.slots; p.requests.Done() }
 
+// Acquire leases an idle engine, waiting until one is free, ctx is done or the
+// pool stops. Each success needs one Release.
 func (p *Pool) Acquire(ctx context.Context) (engine.Transcriber, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -100,6 +112,7 @@ func (p *Pool) Acquire(ctx context.Context) (engine.Transcriber, error) {
 	}
 }
 
+// Release returns a leased engine, after its native call has returned.
 func (p *Pool) Release(e engine.Transcriber) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -107,18 +120,21 @@ func (p *Pool) Release(e engine.Transcriber) {
 	p.idle <- e
 }
 
+// Ready reports whether at least one engine is loaded and the pool is running.
 func (p *Pool) Ready() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return !p.closed && len(p.engines) > 0
 }
 
+// Stats reports admitted requests, leased engines and loaded engines.
 func (p *Pool) Stats() (admitted, active, loaded int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.slots), p.active, len(p.engines)
 }
 
+// Stop stops admission and wakes requests waiting in Acquire.
 func (p *Pool) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()

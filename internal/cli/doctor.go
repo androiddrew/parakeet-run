@@ -15,112 +15,138 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/androiddrew/parakeet-run/internal/assets"
 	"github.com/androiddrew/parakeet-run/internal/audio"
 	"github.com/androiddrew/parakeet-run/internal/config"
 	"github.com/androiddrew/parakeet-run/internal/engine"
-	"github.com/spf13/cobra"
 )
 
+// doctorCommand runs _doctor in a subprocess with verbose native logging and
+// checks the logged node placements, which prove where inference really runs.
 func doctorCommand() *cobra.Command {
 	var logPath string
-	cmd := &cobra.Command{Use: "doctor", Short: "Verify assets, native inference, and actual provider placement", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		l, err := resolve(cmd)
-		if err != nil {
-			return err
-		}
-		var log *os.File
-		if logPath == "" {
-			log, err = os.CreateTemp(l.Config.Server.TempDir, "parakeet-doctor-*.log")
-		} else {
-			log, err = os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
-		}
-		if err != nil {
-			return err
-		}
-		defer log.Close()
-		if logPath == "" {
-			defer os.Remove(log.Name())
-		}
-		executable, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		data, err := json.Marshal(l.Config)
-		if err != nil {
-			return err
-		}
-		child := exec.CommandContext(cmd.Context(), executable, "_doctor")
-		child.Stdin = bytes.NewReader(data)
-		child.Stderr = log
-		var out bytes.Buffer
-		child.Stdout = &out
-		runErr := child.Run()
-		report := map[string]any{}
-		if runErr == nil {
-			runErr = json.Unmarshal(out.Bytes(), &report)
-		}
-		if _, err := log.Seek(0, io.SeekStart); err != nil {
-			return err
-		}
-		if runErr == nil {
-			placements, err := parsePlacements(log, l.Config.Runtime.Provider)
-			report["session_placements"] = placements
-			runErr = err
-		}
-		if runErr != nil {
-			if info, err := log.Stat(); err == nil {
-				_, _ = log.Seek(max(0, info.Size()-4096), io.SeekStart)
+	cmd := &cobra.Command{
+		Use:   "doctor",
+		Short: "Verify assets, native inference, and actual provider placement",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			l, err := resolve(cmd)
+			if err != nil {
+				return err
 			}
-			tail, _ := io.ReadAll(io.LimitReader(log, 4096))
-			runErr = fmt.Errorf("doctor: %w; native log tail: %s", runErr, strings.TrimSpace(string(tail)))
-			report["error"] = runErr.Error()
-		}
-		report["verified"] = runErr == nil
-		if logPath != "" {
-			report["log"] = logPath
-		}
-		return errors.Join(runErr, json.NewEncoder(cmd.OutOrStdout()).Encode(report))
-	}}
+			var log *os.File
+			if logPath == "" {
+				log, err = os.CreateTemp(l.Config.Server.TempDir, "parakeet-doctor-*.log")
+			} else {
+				log, err = os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+			}
+			if err != nil {
+				return err
+			}
+			defer log.Close()
+			if logPath == "" {
+				defer os.Remove(log.Name())
+			}
+			executable, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			data, err := json.Marshal(l.Config)
+			if err != nil {
+				return err
+			}
+			child := exec.CommandContext(cmd.Context(), executable, "_doctor")
+			child.Stdin = bytes.NewReader(data)
+			child.Stderr = log
+			var out bytes.Buffer
+			child.Stdout = &out
+			runErr := child.Run()
+			report := map[string]any{}
+			if runErr == nil {
+				runErr = json.Unmarshal(out.Bytes(), &report)
+			}
+			if _, err := log.Seek(0, io.SeekStart); err != nil {
+				return err
+			}
+			if runErr == nil {
+				placements, err := parsePlacements(log, l.Config.Runtime.Provider)
+				report["session_placements"] = placements
+				runErr = err
+			}
+			if runErr != nil {
+				if info, err := log.Stat(); err == nil {
+					_, _ = log.Seek(max(0, info.Size()-4096), io.SeekStart)
+				}
+				tail, _ := io.ReadAll(io.LimitReader(log, 4096))
+				runErr = fmt.Errorf("doctor: %w; native log tail: %s", runErr, strings.TrimSpace(string(tail)))
+				report["error"] = runErr.Error()
+			}
+			report["verified"] = runErr == nil
+			if logPath != "" {
+				report["log"] = logPath
+			}
+			return errors.Join(runErr, json.NewEncoder(cmd.OutOrStdout()).Encode(report))
+		},
+	}
 	cmd.Flags().StringVar(&logPath, "log", "", "Retain complete native diagnostics in a new file")
 	return cmd
 }
 
+// doctorWorkerCommand loads and warms one engine from the JSON config on stdin
+// and reports versions and model details on stdout.
 func doctorWorkerCommand() *cobra.Command {
-	return &cobra.Command{Use: "_doctor", Hidden: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) (err error) {
-		var c config.Config
-		d := json.NewDecoder(io.LimitReader(cmd.InOrStdin(), 1<<20))
-		d.DisallowUnknownFields()
-		if err := d.Decode(&c); err != nil {
-			return err
-		}
-		if err := c.Validate(); err != nil {
-			return err
-		}
-		if err := assets.VerifyAll(cmd.Context(), c.Model.Dir); err != nil {
-			return err
-		}
-		if err := (audio.Decoder{Config: c.Audio}).Check(); err != nil {
-			return err
-		}
-		c.Runtime.Verbose = true
-		e, err := engine.Load(c)
-		if err != nil {
-			return err
-		}
-		defer func() { err = errors.Join(err, e.Close()) }()
-		if err := e.Warm(cmd.Context()); err != nil {
-			return err
-		}
-		deps := map[string]string{}
-		if build, ok := debug.ReadBuildInfo(); ok {
-			for _, dep := range build.Deps {
-				deps[dep.Path] = dep.Version
+	return &cobra.Command{
+		Use:    "_doctor",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) (err error) {
+			var c config.Config
+			d := json.NewDecoder(io.LimitReader(cmd.InOrStdin(), 1<<20))
+			d.DisallowUnknownFields()
+			if err := d.Decode(&c); err != nil {
+				return err
 			}
-		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"version": Version(), "go": runtime.Version(), "dependencies": deps, "runtime_library": c.Runtime.Library,
-			"provider": c.Runtime.Provider, "device_id": c.Runtime.DeviceID, "initialization": e.Initialization(), "model": e.ModelInfo(), "model_revision": assets.Revision, "assets": assets.Manifest(), "ffmpeg": c.Audio.FFmpeg})
-	}}
+			if err := c.Validate(); err != nil {
+				return err
+			}
+			if err := assets.VerifyAll(cmd.Context(), c.Model.Dir); err != nil {
+				return err
+			}
+			if err := (audio.Decoder{Config: c.Audio}).Check(); err != nil {
+				return err
+			}
+			c.Runtime.Verbose = true
+			e, err := engine.Load(c)
+			if err != nil {
+				return err
+			}
+			defer func() { err = errors.Join(err, e.Close()) }()
+			if err := e.Warm(cmd.Context()); err != nil {
+				return err
+			}
+			deps := map[string]string{}
+			if build, ok := debug.ReadBuildInfo(); ok {
+				for _, dep := range build.Deps {
+					deps[dep.Path] = dep.Version
+				}
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+				"version":         Version(),
+				"go":              runtime.Version(),
+				"dependencies":    deps,
+				"runtime_library": c.Runtime.Library,
+				"provider":        c.Runtime.Provider,
+				"device_id":       c.Runtime.DeviceID,
+				"initialization":  e.Initialization(),
+				"model":           e.ModelInfo(),
+				"model_revision":  assets.Revision,
+				"assets":          assets.Manifest(),
+				"ffmpeg":          c.Audio.FFmpeg,
+			})
+		},
+	}
 }
 
 type placement struct {
