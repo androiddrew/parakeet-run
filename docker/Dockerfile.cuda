@@ -1,4 +1,13 @@
 # syntax=docker/dockerfile:1
+#
+# The CUDA 12.8 image for x86-64 NVIDIA GPUs. Build it with `make image-cuda` and
+# run it with `--gpus all` (NVIDIA Container Toolkit).
+#
+#   BAKE_MODELS  1 bakes the FP32 Parakeet bundle (about 2.5 GB), pulled with
+#                the manifest's SHA-256 checks; 0 gives a slim image whose
+#                assets volume needs `parakeet-run pull` once
+#   VERSION      stamped into the binary
+
 ARG GO_IMAGE=golang:1.27-bookworm
 ARG CUDA_IMAGE=nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 ARG ORT_VERSION=1.22.0

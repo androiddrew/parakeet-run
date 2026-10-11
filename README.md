@@ -240,7 +240,7 @@ placement in a subprocess; CPU preprocessing is expected with CUDA inference.
 ## Docker
 
 ```sh
-make image-cpu
+make image-cpu                  # parakeet-run:cpu-amd64, :cpu-arm64 and :cpu (host)
 docker run --rm -p 127.0.0.1:8880:8880 parakeet-run:cpu
 
 make image-cuda
@@ -248,14 +248,16 @@ docker run --rm --gpus all -p 127.0.0.1:8880:8880 parakeet-run:cuda
 ```
 
 Images run as UID 10001, contain FFmpeg, and use `/readyz` for healthchecks. CUDA
-needs NVIDIA Container Toolkit. CPU supports `PLATFORM=linux/amd64` or
-`PLATFORM=linux/arm64`; cross-platform final image steps require binfmt/QEMU or
-a native builder. The desktop CUDA image is amd64 only.
+needs NVIDIA Container Toolkit. The CPU image builds for each of
+`IMAGE_PLATFORMS` (default `linux/amd64 linux/arm64`); the other architecture's
+final steps run under binfmt/QEMU. Use `make image-cpu IMAGE_PLATFORMS=linux/amd64`
+to build only one. `IMAGE` changes the image name. The desktop CUDA image is
+amd64 only.
 
 For an image without baked models:
 
 ```sh
-make image-cpu BAKE_MODELS=0
+make image-cpu IMAGE_PLATFORMS=linux/amd64 BAKE_MODELS=0
 docker volume create parakeet-assets
 docker run --rm -v parakeet-assets:/var/lib/parakeet-run/assets parakeet-run:cpu pull
 docker run --rm -p 127.0.0.1:8880:8880 \

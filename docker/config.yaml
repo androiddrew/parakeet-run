@@ -1,7 +1,13 @@
+# The CPU image's config, at /etc/parakeet-run/config.yaml. Mount your own
+# over it, or override any setting with its PARAKEET_RUN_* variable: PARAKEET_RUN_
+# followed by the setting's path in upper case, such as PARAKEET_RUN_SERVER_REPLICAS.
+# Set PARAKEET_RUN_API_KEY to require a bearer key.
+# `docker run ... parakeet-run:cpu config` prints the effective settings.
+
 runtime:
   library: /opt/onnxruntime/lib/libonnxruntime.so
   provider: cpu
 model:
-  dir: /var/lib/parakeet-run/assets
+  dir: /var/lib/parakeet-run/assets   # the model bundle; mount a volume here
 server:
   listen: :8880

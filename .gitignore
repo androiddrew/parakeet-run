@@ -2,5 +2,12 @@
 /assets/
 /bin/
 /dist/
+/go.work
+/go.work.sum
 /coverage.out
 *.test
+*.onnx
+*.onnx.data
+*.wav
+*.f32
+__pycache__/
