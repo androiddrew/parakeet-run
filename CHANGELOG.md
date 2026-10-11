@@ -1,26 +1,46 @@
 # Changelog
 
-All notable changes are documented here, following Keep a Changelog and Semantic Versioning.
+All notable changes to parakeet-run are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
+[Semantic Versioning](https://semver.org/). Each release's section is published
+as its GitHub release notes.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-11
+
 ### Added
 
-- OpenAI-compatible multipart transcription with JSON, text, and SSE delta/done responses using go-parakeet v0.1.0 and FP32 Parakeet TDT 0.6B v3.
-- Bounded upload admission, disk-backed waiting requests, FFmpeg decoding and resampling, exclusive model replicas, and cooperative cancellation.
-- Model listing, optional bearer authentication, liveness/readiness endpoints, Prometheus metrics, and structured logs.
-- `serve`, `transcribe`, `pull`, `config`, `doctor`, and `bench` commands with strict layered YAML/environment/flag configuration.
-- Checksum-pinned model provisioning and native provider-placement diagnostics.
-- CPU/CUDA native tests, official OpenAI SDK smoke tests, and Docker recipes for CPU amd64/arm64, desktop CUDA, Jetson Orin, and Jetson Xavier.
-- CI checks, versioned binary release workflow, checksums, and dependency license collection.
+- **OpenAI-compatible speech-to-text server**, `parakeet-run serve`, using
+  [go-parakeet v0.1.0](https://github.com/androiddrew/go-parakeet) and the FP32
+  NVIDIA Parakeet TDT 0.6B v3 model: `POST /v1/audio/transcriptions` with `json`
+  and `text` responses and SSE streaming (`stream=true`), `GET /v1/models`,
+  optional model aliases, optional bearer-key auth (`PARAKEET_RUN_API_KEY`),
+  `/healthz`, `/readyz` and Prometheus `/metrics`. Unsupported OpenAI parameters
+  are rejected with a 400 naming the parameter; a wrong or missing model names
+  the configured model.
+- **Open WebUI** voice mode works as an OpenAI STT engine; the README covers the
+  settings, including the separate STT model setting.
+- **Bounded capacity**: replicas with a bounded admission queue (429 when full),
+  disk-spooled uploads, upload, decode and request timeouts, cooperative
+  cancellation and graceful shutdown.
+- **Audio decoding with FFmpeg**: WAV, MP3, MP4/M4A, WebM, FLAC and Ogg, converted
+  to 16 kHz mono with a configurable maximum duration.
+- **Commands** `transcribe`, `bench`, `pull`, `config` and `doctor`. `pull`
+  downloads the model with SHA-256 checks; `doctor` verifies where ONNX Runtime
+  actually placed the model's nodes on CPU or CUDA.
+- **Layered configuration** for every command: built-in defaults, then a YAML file
+  (`--config` or `PARAKEET_RUN_CONFIG`), then `PARAKEET_RUN_*` environment
+  variables, then flags.
+- **Docker images**, with ONNX Runtime, FFmpeg and the model built in:
+  - CPU, for linux/amd64 and linux/arm64 (`make image-cpu`).
+  - CUDA 12.8 for x86-64 NVIDIA GPUs (`make image-cuda`).
+  - Jetson Orin on JetPack 7.2, with ONNX Runtime 1.23 built for CUDA 13.2
+    (`make image-jetson-orin`).
+  - Jetson Xavier on JetPack 5, with ONNX Runtime 1.22 built for CUDA 12.2 through
+    `cuda-compat` (`make image-jetson-xavier`).
+- Release archives for linux/amd64 and linux/arm64 with SHA256SUMS. Dependency
+  licenses and the Parakeet model card ship with the archives and images.
 
-### Changed
-
-- Raised the initial Go baseline from 1.26.4 to 1.26.9 to include standard-library fixes identified during vulnerability checks.
-
-### Fixed
-
-- Made missing/unknown STT model errors actionable by naming the configured model, and added validation error details to transcription logs.
-- Documented Open WebUI's separate STT model setting and multipart voice-mode configuration after diagnosing a model-name mismatch.
-
-[Unreleased]: https://github.com/androiddrew/parakeet-run/commits/main
+[Unreleased]: https://github.com/androiddrew/parakeet-run/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/androiddrew/parakeet-run/releases/tag/v0.1.0
