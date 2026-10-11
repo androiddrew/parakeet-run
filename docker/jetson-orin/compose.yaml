@@ -1,0 +1,54 @@
+# parakeet-run on a Jetson Orin. Build the image on the Orin first:
+#
+#   make image-jetson-orin-onnxruntime   # once; takes hours
+#   make image-jetson-orin               # bakes the model; BAKE_MODELS=0 for a slim image
+#
+# Then, from this directory:
+#
+#   docker compose up -d
+#   docker compose logs -f               # "replica ready", then "listening"
+#   docker compose run --rm parakeet-run doctor
+#
+# With a slim image, fill the model volume once before `up`:
+#
+#   docker compose run --rm parakeet-run pull
+#
+# Point Open WebUI's OpenAI STT engine at http://<orin-host>:8880/v1 with the STT
+# model parakeet-tdt-0.6b-v3.
+
+services:
+  parakeet-run:
+    image: parakeet-run:jetson-orin
+    runtime: nvidia
+    restart: unless-stopped
+    ports:
+      - "8880:8880"             # use "127.0.0.1:8880:8880" to keep it on the Orin
+    volumes:
+      # The first start copies the baked model into this volume, so it is kept
+      # across container recreation. Recreate the volume when the model changes.
+      - parakeet-assets:/var/lib/parakeet-run/assets
+    environment:
+      # Any setting can be overridden as PARAKEET_RUN_ and its upper-case YAML
+      # path; `docker compose run --rm parakeet-run config` prints them all.
+      PARAKEET_RUN_SERVER_MAX_QUEUE: "8"
+      PARAKEET_RUN_LOGGING_LEVEL: info
+      # To require a bearer key, uncomment this and the secrets below, and put
+      # the key in ./api_key.txt (readable by UID 10001).
+      # PARAKEET_RUN_SERVER_API_KEY_FILE: /run/secrets/parakeet_api_key
+    # secrets:
+    #   - parakeet_api_key
+    # Leave time for in-flight transcriptions to finish: the server drains for
+    # up to server.shutdown_timeout (2m) after SIGTERM.
+    stop_grace_period: 130s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  parakeet-assets:
+
+# secrets:
+#   parakeet_api_key:
+#     file: ./api_key.txt

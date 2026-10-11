@@ -23,6 +23,11 @@ docker run --rm --runtime nvidia parakeet-run:jetson-orin doctor
 docker run --rm --runtime nvidia -p 127.0.0.1:8880:8880 parakeet-run:jetson-orin
 ```
 
+To run it as a service, use [jetson-orin/compose.yaml](jetson-orin/compose.yaml):
+`docker compose -f docker/jetson-orin/compose.yaml up -d`. It keeps the model in
+a named volume, restarts the service, allows time for a graceful shutdown, and
+shows how to require an API key.
+
 The runtime build defaults to three compilation jobs and one nvcc thread. Lower
 it on devices with less memory, for example
 `make image-jetson-orin-onnxruntime JETSON_PARALLEL=1`.
